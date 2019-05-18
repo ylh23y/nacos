@@ -9,7 +9,6 @@
     "eslint": "eslint --ext .js src/",
     "eslint-fix": "eslint  --ext .js --fix src/"
   },
-  "private": true,
   "husky": {
     "hooks": {
       "pre-commit": "lint-staged"
@@ -64,7 +63,7 @@
     "webpack-dev-server": "^3.1.13"
   },
   "dependencies": {
-    "@alifd/next": "^1.11.5",
+    "@alifd/next": "^1.11.10",
     "axios": "^0.18.0",
     "jquery": "^3.3.1",
     "moment": "^2.23.0",

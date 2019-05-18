@@ -16,7 +16,7 @@
 package com.alibaba.nacos.common.util;
 
 /**
- * @author <a href="mailto:zpf.073@gmail.com">nkorange</a>
+ * @author nkorange
  * @since 0.8.0
  */
 public class HttpMethod {
@@ -33,7 +33,7 @@ public class HttpMethod {
 
     public static final String DELETE = "DELETE";
 
-    public static final String OPTIONS = "PATCH";
+    public static final String OPTIONS = "OPTIONS";
 
     public static final String TRACE = "TRACE";
 }
