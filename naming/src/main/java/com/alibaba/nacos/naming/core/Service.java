@@ -17,6 +17,7 @@ package com.alibaba.nacos.naming.core;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.annotation.JSONField;
+import com.alibaba.nacos.common.utils.Md5Utils;
 import com.alibaba.nacos.naming.boot.SpringContext;
 import com.alibaba.nacos.naming.consistency.KeyBuilder;
 import com.alibaba.nacos.naming.consistency.RecordListener;
@@ -32,12 +33,8 @@ import com.alibaba.nacos.naming.selector.NoneSelector;
 import com.alibaba.nacos.naming.selector.Selector;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.ListUtils;
-import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.StringUtils;
 
-import java.math.BigInteger;
-import java.nio.charset.Charset;
-import java.security.MessageDigest;
 import java.util.*;
 
 /**
@@ -56,6 +53,11 @@ public class Service extends com.alibaba.nacos.api.naming.pojo.Service implement
 
     @JSONField(serialize = false)
     private ClientBeatCheckTask clientBeatCheckTask = new ClientBeatCheckTask(this);
+
+    /**
+     * Identify the information used to determine how many isEmpty judgments the service has experienced
+     */
+    private int finalizeCount = 0;
 
     private String token;
     private List<String> owners = new ArrayList<>();
@@ -78,7 +80,7 @@ public class Service extends com.alibaba.nacos.api.naming.pojo.Service implement
      */
     private long pushCacheMillis = 0L;
 
-    private Map<String, Cluster> clusterMap = new HashMap<String, Cluster>();
+    private Map<String, Cluster> clusterMap = new HashMap<>();
 
     public Service() {
     }
@@ -191,7 +193,7 @@ public class Service extends com.alibaba.nacos.api.naming.pojo.Service implement
         return healthyCount;
     }
 
-    public boolean meetProtectThreshold() {
+    public boolean triggerFlag() {
         return (healthyInstanceCount() * 1.0 / allIPs().size()) <= getProtectThreshold();
     }
 
@@ -215,8 +217,7 @@ public class Service extends com.alibaba.nacos.api.naming.pojo.Service implement
                 if (!clusterMap.containsKey(instance.getClusterName())) {
                     Loggers.SRV_LOG.warn("cluster: {} not found, ip: {}, will create new cluster with default configuration.",
                         instance.getClusterName(), instance.toJSON());
-                    Cluster cluster = new Cluster(instance.getClusterName());
-                    cluster.setService(this);
+                    Cluster cluster = new Cluster(instance.getClusterName(), this);
                     cluster.init();
                     getClusterMap().put(instance.getClusterName(), cluster);
                 }
@@ -240,7 +241,7 @@ public class Service extends com.alibaba.nacos.api.naming.pojo.Service implement
         }
 
         setLastModifiedMillis(System.currentTimeMillis());
-        getPushService().serviceChanged(namespaceId, getName());
+        getPushService().serviceChanged(this);
         StringBuilder stringBuilder = new StringBuilder();
 
         for (Instance instance : allIPs()) {
@@ -267,6 +268,16 @@ public class Service extends com.alibaba.nacos.api.naming.pojo.Service implement
             entry.getValue().destroy();
         }
         HealthCheckReactor.cancelCheck(clientBeatCheckTask);
+    }
+
+    public boolean isEmpty() {
+        for (Map.Entry<String, Cluster> entry : clusterMap.entrySet()) {
+            final Cluster cluster = entry.getValue();
+            if (!cluster.isEmpty()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public List<Instance> allIPs() {
@@ -425,9 +436,13 @@ public class Service extends com.alibaba.nacos.api.naming.pojo.Service implement
 
         updateOrAddCluster(vDom.getClusterMap().values());
         remvDeadClusters(this, vDom);
+
+        Loggers.SRV_LOG.info("cluster size, new: {}, old: {}", getClusterMap().size(), vDom.getClusterMap().size());
+
         recalculateChecksum();
     }
 
+    @Override
     public String getChecksum() {
         if (StringUtils.isEmpty(checksum)) {
             recalculateChecksum();
@@ -457,21 +472,7 @@ public class Service extends com.alibaba.nacos.api.naming.pojo.Service implement
             ipsString.append(",");
         }
 
-        try {
-            String result;
-            try {
-                MessageDigest md5 = MessageDigest.getInstance("MD5");
-                result = new BigInteger(1, md5.digest((ipsString.toString()).getBytes(Charset.forName("UTF-8")))).toString(16);
-            } catch (Exception e) {
-                Loggers.SRV_LOG.error("[NACOS-DOM] error while calculating checksum(md5)", e);
-                result = RandomStringUtils.randomAscii(32);
-            }
-
-            checksum = result;
-        } catch (Exception e) {
-            Loggers.SRV_LOG.error("[NACOS-DOM] error while calculating checksum(md5)", e);
-            checksum = RandomStringUtils.randomAscii(32);
-        }
+        checksum = Md5Utils.getMD5(ipsString.toString(), "UTF-8");
     }
 
     private void updateOrAddCluster(Collection<Cluster> clusters) {
@@ -497,6 +498,14 @@ public class Service extends com.alibaba.nacos.api.naming.pojo.Service implement
 
             cluster.destroy();
         }
+    }
+
+    public int getFinalizeCount() {
+        return finalizeCount;
+    }
+
+    public void setFinalizeCount(int finalizeCount) {
+        this.finalizeCount = finalizeCount;
     }
 
     public void addCluster(Cluster cluster) {
